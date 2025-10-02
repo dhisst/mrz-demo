@@ -3,281 +3,311 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Passport MRZ OCR (Simple)</title>
+<title>Passport MRZ OCR v2 (Accuracy Boost)</title>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
   h1 { font-size: 1.15rem; margin: 0 0 12px; }
-  .wrap { max-width: 680px; margin: 0 auto; }
+  .wrap { max-width: 720px; margin: 0 auto; }
   .card { border: 1px solid rgba(0,0,0,0.15); border-radius: 12px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.06); }
-  .row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
-  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; }
-  button { padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15); cursor: pointer; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center; }
+  button { padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15); cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
   input[type="text"] { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.2); font-size: 1rem; }
-  .hint { font-size: 0.9rem; opacity: 0.8; }
-  .status { margin-top: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
-  .videoWrap { position: relative; aspect-ratio: 4/3; background: #000; border-radius: 12px; overflow: hidden; }
-  video { width: 100%; height: 100%; object-fit: cover; } /* ミラー不可なら消す */
-  /* ガイド枠（MRZ想定：横長・下寄せ） */
-  .guide {
-    position: absolute; left: 50%; bottom: 8%;
-    transform: translateX(-50%);
-    width: 92%; height: 22%;
-    border: 2px dashed rgba(255,255,255,0.9);
-    box-shadow: 0 0 0 999px rgba(0,0,0,0.25) inset;
-    border-radius: 10px;
-    pointer-events: none;
-  }
-  .ok { color: #087f23; }
-  .ng { color: #b00020; }
+  .videoWrap { position:relative; background:#000; border-radius:12px; overflow:hidden; }
+  video { width: 100%; height: auto; display:block; object-fit: contain; transform: none; }
+  .guide { position:absolute; left:50%; bottom:8%; transform:translateX(-50%); width:92%; height:22%;
+           border:2px dashed rgba(255,255,255,0.9); box-shadow:0 0 0 999px rgba(0,0,0,0.25) inset; border-radius:10px; pointer-events:none;}
+  .status { margin-top:8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
+  .ok { color:#087f23; }
+  .ng { color:#b00020; }
+  .hint { font-size:.9rem; opacity:.8; }
   .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:.8rem; border:1px solid rgba(0,0,0,.15); }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>パスポート番号 OCR（MRZスキャン）</h1>
+  <h1>パスポート番号 OCR（MRZスキャン）v2</h1>
 
   <div class="card" style="margin-bottom:16px">
-    <div class="videoWrap">
+    <div class="videoWrap" id="videoWrap">
       <video id="video" playsinline muted></video>
       <div class="guide" title="MRZ（2行）がここに収まるように構えてください"></div>
     </div>
     <div class="controls">
       <button id="btnStart">カメラを起動</button>
-      <button id="btnScan" disabled>スキャンする</button>
+      <button id="btnBurst" disabled>高精度スキャン（連写）</button>
       <button id="btnStop" disabled>停止</button>
-      <span class="hint">背面カメラを使用し、反射や傾きを避けてください。</span>
+      <span class="hint">明るい場所で、枠にMRZを水平に合わせてください。</span>
     </div>
     <div class="status" id="status">準備中…</div>
   </div>
 
   <div class="card">
     <label for="passportNo">パスポート番号 <span class="badge">必須</span></label>
-    <div class="row" style="margin-top:6px">
-      <input id="passportNo" type="text" inputmode="latin-prose" placeholder="例: TR1234567"
-             pattern="[A-Z0-9]{6,10}" maxlength="10" />
+    <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; margin-top:6px;">
+      <input id="passportNo" type="text" placeholder="例: TR1234567" pattern="[A-Z0-9]{6,10}" maxlength="10" />
       <button id="toggleManual">手入力に切替</button>
     </div>
-    <div class="hint">英大文字・数字のみ。OCR成功時は自動で入力されます。</div>
+    <div class="hint">英大文字・数字のみ。OCR成功時は自動入力されます。</div>
     <div class="status" id="validateMsg"></div>
   </div>
 
-  <p class="hint" style="margin-top:12px">
-    ※ このデモは端末内で画像を処理し、サーバーへ画像を送信しません（Tesseract.jsを使用）。
-  </p>
+  <p class="hint" style="margin-top:12px">※ 端末内OCR（Tesseract.js）＋OpenCV.js前処理。画像はサーバー送信しません。</p>
 </div>
 
-<!-- Tesseract.js (WASM, CDN) -->
+<!-- OpenCV.js（前処理用） -->
+<script src="https://docs.opencv.org/4.x/opencv.js" async onload="cvReady()" ></script>
+<!-- Tesseract.js -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
 <script>
-  const video = document.getElementById('video');
-  const btnStart = document.getElementById('btnStart');
-  const btnScan  = document.getElementById('btnScan');
-  const btnStop  = document.getElementById('btnStop');
-  const statusEl = document.getElementById('status');
-  const toggleManual = document.getElementById('toggleManual');
-  const passportNoInput = document.getElementById('passportNo');
-  const validateMsg = document.getElementById('validateMsg');
+let cvLoaded = false;
+function cvReady(){ cvLoaded = true; }
 
-  let stream = null;
-  const W = 1280, H = 960; // 内部処理用の仮サイズ（端末に合わせてブラウザが調整）
+const video = document.getElementById('video');
+const videoWrap = document.getElementById('videoWrap');
+const btnStart = document.getElementById('btnStart');
+const btnBurst = document.getElementById('btnBurst');
+const btnStop = document.getElementById('btnStop');
+const toggleManual = document.getElementById('toggleManual');
+const passportNoInput = document.getElementById('passportNo');
+const validateMsg = document.getElementById('validateMsg');
+const statusEl = document.getElementById('status');
 
-  // 文字→数値（ICAO Doc 9303）
-  const weight = [7,3,1];
-  const val = ch => ch === '<' ? 0 :
-    (ch >= '0' && ch <= '9') ? ch.charCodeAt(0) - 48 :
-    (ch >= 'A' && ch <= 'Z') ? ch.charCodeAt(0) - 55 : 0;
+let stream = null;
+let manual = false;
 
-  function checkDigit(field, checkChar) {
-    let sum = 0;
-    for (let i = 0; i < field.length; i++) sum += val(field[i]) * weight[i % 3];
-    return String(sum % 10) === checkChar;
+const weight = [7,3,1];
+const val = ch => ch === '<' ? 0 :
+  (ch >= '0' && ch <= '9') ? ch.charCodeAt(0) - 48 :
+  (ch >= 'A' && ch <= 'Z') ? ch.charCodeAt(0) - 55 : 0;
+
+function checkDigit(field, checkChar) {
+  let sum = 0;
+  for (let i=0;i<field.length;i++) sum += val(field[i]) * weight[i % 3];
+  return String(sum % 10) === checkChar;
+}
+function setStatus(t){ statusEl.textContent = t; }
+
+function sanitize(text){
+  return (text || '').toUpperCase().replace(/[^A-Z0-9<\n]/g,'').replace(/[ ]+/g,'').trim();
+}
+function pickMRZLines(text){
+  const lines = text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const scored = lines.map(s => ({ s, score: s.length + (s.match(/</g)?.length || 0)*2 }));
+  scored.sort((a,b)=>b.score-a.score);
+  return scored.slice(0,3).map(o=>o.s);
+}
+function extractTD3Line2(line2){
+  if (!line2 || line2.length < 10) return null;
+  const num = line2.slice(0,9);
+  const chk = line2.slice(9,10);
+  return {num, chk};
+}
+function validateAndFill(passNum, chkChar){
+  passportNoInput.value = passNum.replace(/[^A-Z0-9]/g,'').toUpperCase();
+  if (chkChar && /[0-9]/.test(chkChar)){
+    const ok = checkDigit(passNum.padEnd(9,'<'), chkChar);
+    validateMsg.textContent = ok ? '✅ チェックデジットOK' : '❌ チェックデジット不一致';
+    validateMsg.className = 'status ' + (ok ? 'ok' : 'ng');
+    return ok;
+  } else {
+    const ok = /^[A-Z0-9]{6,10}$/.test(passNum);
+    validateMsg.textContent = ok ? '✅ 形式OK（手入力）' : '❌ 形式エラー（A–Z/0–9、6–10桁）';
+    validateMsg.className = 'status ' + (ok ? 'ok' : 'ng');
+    return ok;
   }
+}
 
-  function sanitizeMRZ(text) {
-    // 大文字化 + MRZに不要な文字の除去
-    return text.toUpperCase().replace(/[^A-Z0-9<\n]/g, '').replace(/[ ]+/g, '').trim();
+async function startCamera(){
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal:'environment' },
+        width: { ideal: 1920 },
+        height:{ ideal: 1080 },
+        // 端末によっては無視されますが、高解像度を要求
+      },
+      audio:false
+    });
+    video.srcObject = stream;
+    await video.play();
+    // 表示高さを実アスペクトに合わせる（ズーム見え防止）
+    const vw = video.videoWidth, vh = video.videoHeight;
+    videoWrap.style.height = `${videoWrap.clientWidth * (vh / vw)}px`;
+
+    btnBurst.disabled = false;
+    btnStop.disabled = false;
+    btnStart.disabled = true;
+    setStatus('カメラ起動：枠にMRZ（2行）を水平に収めて「高精度スキャン」を押してください。');
+  }catch(e){
+    console.error(e);
+    setStatus('カメラ起動失敗。HTTPS/権限/ブラウザを確認してください。');
   }
+}
 
-  function pickMRZLines(text) {
-    // 行ごとに分割し、長さと '<' の多さでMRZらしい2行/3行を抽出
-    const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
-    // スコア：長いほど良い + '<' 多いほど良い
-    const scored = lines.map(s => ({ s, score: s.length + (s.match(/</g)?.length || 0) * 2 }));
-    scored.sort((a,b)=>b.score-a.score);
-    // 上位3行から長い順で返す
-    return scored.slice(0, 3).map(o => o.s);
+async function stopCamera(){
+  if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  video.srcObject = null;
+  btnBurst.disabled = true;
+  btnStop.disabled = true;
+  btnStart.disabled = false;
+  setStatus('停止しました。');
+}
+
+function cropMRZCanvas(){
+  // 画面下側22%をMRZ候補領域として切り出し
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const cropH = Math.floor(vh * 0.22);
+  const cropY = Math.max(0, Math.floor(vh * 0.78) - 8);
+  const cropX = Math.floor(vw * 0.04);
+  const cropW = Math.floor(vw * 0.92);
+
+  const c = document.createElement('canvas');
+  c.width = cropW; c.height = cropH;
+  c.getContext('2d').drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  return c;
+}
+
+function preprocessWithOpenCV(srcCanvas){
+  if (!cvLoaded) return srcCanvas; // OpenCV未ロード時は素通し
+  const src = cv.imread(srcCanvas);
+  let gray = new cv.Mat(), blur = new cv.Mat(), bin = new cv.Mat(), mor = new cv.Mat(), dst = new cv.Mat();
+
+  try{
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+    cv.GaussianBlur(gray, blur, new cv.Size(3,3), 0);
+    cv.threshold(blur, bin, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+    // ノイズ低減＋文字連結のためのクロージング
+    const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3,3));
+    cv.morphologyEx(bin, mor, cv.MORPH_CLOSE, k);
+
+    // 2倍に拡大（OCRの解像度を上げる）
+    const out = document.createElement('canvas');
+    out.width = srcCanvas.width * 2; out.height = srcCanvas.height * 2;
+    cv.resize(mor, dst, new cv.Size(out.width, out.height), 0, 0, cv.INTER_LINEAR);
+    cv.imshow(out, dst);
+    return out;
+  } finally {
+    src.delete(); gray.delete(); blur.delete(); bin.delete(); mor.delete(); dst.delete();
   }
+}
 
-  function extractPassportNumberFromTD3(line2) {
-    // TD3（旅券）の第2行：0..8 パスポート番号、9 チェック桁
-    if (!line2 || line2.length < 10) return null;
-    const num = line2.slice(0, 9);
-    const chk = line2.slice(9, 10);
-    return { num, chk };
+async function ocrOnce(prepCanvas){
+  // キャンバスをBlob化してOCR
+  const blob = await new Promise(res => prepCanvas.toBlob(res, 'image/jpeg', 0.95));
+  const { data } = await Tesseract.recognize(blob, 'eng', {
+    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
+    // PSMは単一テキスト行 or ブロック。端末により最適が違うのでまずは6/7で試す。
+    // tessedit_pageseg_mode: '6', // uncommentして比較してもOK
+  });
+  const clean = sanitize(data.text);
+  return { text: clean, conf: data.confidence || 0 };
+}
+
+function chooseBest(candidates){
+  // 候補 = [{num,chk,raw,conf}]
+  // 1) チェックデジット合格かつ同一numが複数回 → 採用
+  const byNum = new Map();
+  for (const c of candidates){
+    if (!c) continue;
+    const key = `${c.num}|${c.chk}`;
+    byNum.set(key, (byNum.get(key)||0) + 1);
   }
-
-  function validateAndFill(passNum, chkChar) {
-    // 入力欄に反映 + バリデーション表示
-    passportNoInput.value = passNum.replace(/[^A-Z0-9]/g, '').toUpperCase();
-    // パスポート番号自体は英数混在OK、チェック桁はMRZからのみ検証可能
-    if (chkChar && /[0-9]/.test(chkChar)) {
-      const ok = checkDigit(passNum.padEnd(9, '<'), chkChar); // 欠損時は '<' 補完
-      validateMsg.textContent = ok ? '✅ チェックデジットOK（OCR）' : '❌ チェックデジット不一致（再撮影推奨）';
-      validateMsg.className = 'status ' + (ok ? 'ok' : 'ng');
-      return ok;
-    } else {
-      // 手入力時は形式のみ（9〜10桁程度の英数）
-      const ok = /^[A-Z0-9]{6,10}$/.test(passNum);
-      validateMsg.textContent = ok ? '✅ 形式OK（手入力）' : '❌ 形式エラー：英大文字/数字のみ（6〜10桁）';
-      validateMsg.className = 'status ' + (ok ? 'ok' : 'ng');
-      return ok;
-    }
+  const majority = [...byNum.entries()].sort((a,b)=>b[1]-a[1])[0];
+  if (majority && majority[1] >= 2){
+    const [num, chk] = majority[0].split('|');
+    return { num, chk, reason: 'majority' };
   }
-
-  function setStatus(text) { statusEl.textContent = text; }
-
-  async function startCamera() {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        },
-        audio: false
-      });
-      video.srcObject = stream;
-      await video.play();
-      btnScan.disabled = false;
-      btnStop.disabled = false;
-      btnStart.disabled = true;
-      setStatus('カメラ起動済み：枠内にMRZ（2行）を収めて「スキャンする」を押してください。');
-    } catch (e) {
-      console.error(e);
-      setStatus('カメラ起動に失敗しました。HTTPS/権限/ブラウザを確認してください。');
-    }
+  // 2) それがなければ、チェックデジット合格の中で conf 最大
+  const okOnly = candidates.filter(c => c && c.ok);
+  if (okOnly.length){
+    okOnly.sort((a,b)=>b.conf - a.conf);
+    return { num: okOnly[0].num, chk: okOnly[0].chk, reason: 'best_conf' };
   }
+  // 3) 全滅なら null
+  return null;
+}
 
-  async function stopCamera() {
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-    }
-    video.srcObject = null;
-    btnScan.disabled = true;
-    btnStop.disabled = true;
-    btnStart.disabled = false;
-    setStatus('停止しました。');
+async function burstScan(){
+  if (!stream || video.readyState < 2) {
+    setStatus('カメラ未起動。先に「カメラを起動」を押してください。');
+    return;
   }
+  if (!cvLoaded){
+    setStatus('OpenCV.js ロード待ちです。数秒後に再試行してください。');
+    return;
+  }
+  setStatus('スキャン中…（6フレーム）');
+  btnBurst.disabled = true;
 
-  async function scanOnce() {
-    if (!stream || video.readyState < 2) {
-      setStatus('カメラが未起動です。先に「カメラを起動」を押してください。');
-      return;
-    }
-    setStatus('撮影中…');
+  const captureCount = 6; // 必要に応じて 8〜10 に増やす
+  const delayMs = 120;    // 各フレームの間隔
+  const results = [];
 
-    // キャンバスに「ガイド枠」相当の下部領域を切り出す（簡易）
-    const canvas = document.createElement('canvas');
-    const vw = video.videoWidth || W;
-    const vh = video.videoHeight || H;
-    canvas.width = vw;
-    canvas.height = vh;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, vw, vh);
-
-    // 画面の下側 22% をMRZ候補領域として切り出す
-    const cropH = Math.floor(vh * 0.22);
-    const cropY = Math.floor(vh * 0.78) - 8; // ちょい上補正
-    const cropX = Math.floor(vw * 0.04);
-    const cropW = Math.floor(vw * 0.92);
-
-    const crop = document.createElement('canvas');
-    crop.width = cropW;
-    crop.height = cropH;
-    const cctx = crop.getContext('2d');
-    cctx.drawImage(canvas, cropX, Math.max(0,cropY), cropW, cropH, 0, 0, cropW, cropH);
-
-    setStatus('OCR実行中…（数秒かかることがあります）');
-
-    try {
-      const blob = await new Promise(res => crop.toBlob(res, 'image/jpeg', 0.95));
-      const { data } = await Tesseract.recognize(blob, 'eng', {
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
-        // 単一ブロック寄りで読ませる。必要に応じて psm 調整
-        // tessedit_pageseg_mode: '6'
-      });
-
-      let text = sanitizeMRZ(data.text || '');
-      if (!text) {
-        setStatus('文字を検出できませんでした。明るさ/ピント/反射を調整して再試行してください。');
-        return;
-      }
-
-      // MRZらしい行を抽出
+  for (let i=0; i<captureCount; i++){
+    // 1) 低部をクロップ
+    const crop = cropMRZCanvas();
+    // 2) OpenCV前処理
+    const pre = preprocessWithOpenCV(crop);
+    // 3) OCR
+    try{
+      const { text, conf } = await ocrOnce(pre);
       const lines = pickMRZLines(text);
-      // TD3（旅券）想定：スコア上位のうち、2行目らしき長文を取る
-      // 簡易戦略：最長行をline2候補に（実運用では行距離などでもう少し厳密に）
-      const sortedByLen = [...lines].sort((a,b)=>b.length-a.length);
-      const line2 = sortedByLen[0] || '';
-
-      // パスポート番号とチェック桁
-      const res = extractPassportNumberFromTD3(line2);
-      if (!res) {
-        setStatus('MRZの第2行抽出に失敗しました。枠内に水平に収め、再撮影してください。');
-        return;
-      }
-
-      // 0/ O 誤認対策：チェック桁や日付等は数値のみなのでO→0置換して再検証するが
-      // パスポート番号自体は英字を含む場合があるため置換しない
-      const { num, chk } = res;
-      const ok = checkDigit(num.padEnd(9,'<'), chk.replace('O','0'));
-      validateAndFill(num, chk);
-
-      if (ok) {
-        setStatus(`読み取り成功：${num}（チェック桁=${chk}）`);
+      const line2 = [...lines].sort((a,b)=>b.length-a.length)[0] || '';
+      const ex = extractTD3Line2(line2);
+      if (ex){
+        // チェック桁は数字のみ前提。O→0 誤認補正はチェック桁にのみ適用。
+        const chk = ex.chk.replace('O','0');
+        const ok = /^[A-Z0-9]{6,10}$/.test(ex.num) && /^[0-9]$/.test(chk) && checkDigit(ex.num.padEnd(9,'<'), chk);
+        results.push({ num: ex.num, chk, ok, conf });
       } else {
-        setStatus('読み取り結果の整合性が取りませんでした（チェック桁NG）。角度/距離/明るさを見直して再試行してください。');
+        results.push(null);
       }
-    } catch (err) {
-      console.error(err);
-      setStatus('OCR中にエラーが発生しました。もう一度お試しください。');
+      setStatus(`スキャン中… ${i+1}/${captureCount}`);
+    } catch(e){
+      console.error(e);
+      results.push(null);
     }
+    await new Promise(r => setTimeout(r, delayMs));
   }
 
-  // 手入力切替
-  let manual = false;
-  toggleManual.addEventListener('click', () => {
-    manual = !manual;
-    passportNoInput.readOnly = !manual;
-    toggleManual.textContent = manual ? '自動（OCR）に戻す' : '手入力に切替';
-    if (!manual) {
-      validateMsg.textContent = '';
-      validateMsg.className = 'status';
-    } else {
-      passportNoInput.focus();
-    }
-  });
+  const best = chooseBest(results);
+  if (best){
+    validateAndFill(best.num, best.chk);
+    setStatus(`読み取り成功：${best.num}（チェック桁=${best.chk}、${best.reason==='majority'?'多数決':'最高信頼度'}）`);
+  } else {
+    // 参考として一番長い生テキストの断片を表示（調整の手がかり）
+    const rawBest = results
+      .filter(Boolean)
+      .sort((a,b)=>b.conf - a.conf)[0];
+    setStatus('読み取りに失敗しました。照明・角度・距離を調整→再スキャンしてください。' + (rawBest?`\n候補例: ${rawBest.num} (conf≈${Math.round(rawBest.conf)})`:''));
+  }
 
-  // 手入力の都度、形式チェック
-  passportNoInput.addEventListener('input', (e) => {
-    const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
-    if (v !== e.target.value) e.target.value = v;
-    if (manual) validateAndFill(v);
-  });
+  btnBurst.disabled = false;
+}
 
-  btnStart.addEventListener('click', startCamera);
-  btnStop.addEventListener('click', stopCamera);
-  btnScan.addEventListener('click', scanOnce);
+// UI: 手入力トグル & 入力時の形式チェック
+toggleManual.addEventListener('click', ()=>{
+  manual = !manual;
+  passportNoInput.readOnly = !manual;
+  toggleManual.textContent = manual ? '自動（OCR）に戻す' : '手入力に切替';
+  if (manual){ passportNoInput.focus(); } else { validateMsg.textContent=''; validateMsg.className='status'; }
+});
+passportNoInput.addEventListener('input', (e)=>{
+  const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if (v !== e.target.value) e.target.value = v;
+  if (manual) validateAndFill(v);
+});
 
-  // 初期メッセージ
-  setStatus('「カメラを起動」を押して、MRZ（2行）が下部の枠に入るように構えてください。');
+// Buttons
+btnStart.addEventListener('click', startCamera);
+btnStop.addEventListener('click', stopCamera);
+btnBurst.addEventListener('click', burstScan);
 
+// 初期メッセージ
+setStatus('「カメラを起動」を押し、明るい場所で枠にMRZを水平に収めてください。');
 </script>
 </body>
 </html>
-
-
